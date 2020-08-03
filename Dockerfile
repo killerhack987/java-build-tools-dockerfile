@@ -1,6 +1,6 @@
-FROM ubuntu:16.04
+FROM ubuntu:20.04
 LABEL name="Java Build Tools" \
-      maintainer="Cyrille Le Clerc <cleclerc@cloudbees.com>" \
+      maintainer="Cloudbees CloudPlatform Security Members <cloud-platform-security-members@cloudbees.com>" \
       license="Apache-2.0" \
       version="latest" \
       summary="Convenient Docker image to build Java applications." \
@@ -52,9 +52,11 @@ RUN apt-get update -qqy \
 #========================
 RUN apt-get update -qqy \
   && apt-get -qqy --no-install-recommends install \
-    iproute \
+    azure-cli \
+    iproute2 \
     openssh-client ssh-askpass\
     ca-certificates \
+    gpg gpg-agent \
     openjdk-8-jdk \
     tar zip unzip \
     wget curl \
@@ -62,24 +64,21 @@ RUN apt-get update -qqy \
     build-essential \
     less nano tree \
     jq \
-    python python-pip groff \
+    python3 python3-pip groff \
     rlwrap \
     rsync \
-  && rm -rf /var/lib/apt/lists/* \
+  && apt-get clean \
   && sed -i 's/securerandom\.source=file:\/dev\/random/securerandom\.source=file:\/dev\/urandom/' ./usr/lib/jvm/java-8-openjdk-amd64/jre/lib/security/java.security
 
-# workaround https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=775775
-RUN [ -f "/etc/ssl/certs/java/cacerts" ] || /var/lib/dpkg/info/ca-certificates-java.postinst configure
+# Update pip after install
+RUN pip3 install --upgrade pip setuptools
 
-# workaround "You are using pip version 8.1.1, however version 9.0.1 is available."
-RUN pip install --upgrade pip setuptools
-
-RUN pip install yq
+RUN pip3 install yq
 
 #==========
 # Maven
 #==========
-ENV MAVEN_VERSION 3.6.2
+ENV MAVEN_VERSION 3.6.3
 
 RUN curl -fsSL http://archive.apache.org/dist/maven/maven-3/$MAVEN_VERSION/binaries/apache-maven-$MAVEN_VERSION-bin.tar.gz | tar xzf - -C /usr/share \
   && mv /usr/share/apache-maven-$MAVEN_VERSION /usr/share/maven \
@@ -91,13 +90,24 @@ ENV MAVEN_HOME /usr/share/maven
 # Ant
 #==========
 
-ENV ANT_VERSION 1.10.7
+ENV ANT_VERSION 1.10.8
 
 RUN curl -fsSL https://www.apache.org/dist/ant/binaries/apache-ant-$ANT_VERSION-bin.tar.gz | tar xzf - -C /usr/share \
   && mv /usr/share/apache-ant-$ANT_VERSION /usr/share/ant \
   && ln -s /usr/share/ant/bin/ant /usr/bin/ant
 
 ENV ANT_HOME /usr/share/ant
+
+#==========
+# Gradle
+#==========
+
+ENV GRADLE_VERSION 6.5.1
+
+RUN wget -q https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip -P /tmp \
+  && unzip -d /opt/gradle /tmp/gradle-${GRADLE_VERSION}-bin.zip \
+  && ln -s /opt/gradle/gradle-${GRADLE_VERSION}/bin/gradle /usr/bin/gradle \
+  && rm /tmp/gradle-${GRADLE_VERSION}-bin.zip
 
 #==========
 # Selenium
@@ -108,7 +118,7 @@ ENV SELENIUM_VERSION 3.141.59
 RUN  mkdir -p /opt/selenium \
   && wget --no-verbose http://selenium-release.storage.googleapis.com/$SELENIUM_MAJOR_VERSION/selenium-server-standalone-$SELENIUM_VERSION.jar -O /opt/selenium/selenium-server-standalone.jar
 
-RUN pip install -U selenium
+RUN pip3 install -U selenium
 
 # https://github.com/SeleniumHQ/docker-selenium/blob/master/StandaloneFirefox/Dockerfile
 
@@ -136,12 +146,12 @@ RUN useradd jenkins --shell /bin/bash --create-home \
 RUN apt-get update -qqy \
   && apt-get -qqy --no-install-recommends install \
     xvfb \
-  && rm -rf /var/lib/apt/lists/*
+  && apt-get clean
 
 #=========
 # Firefox
 #=========
-ARG FIREFOX_VERSION=68.1.0esr
+ARG FIREFOX_VERSION=78.0.2esr
 
 # don't install firefox with apt-get because there are some problems,
 # install the binaries downloaded from mozilla
@@ -158,7 +168,8 @@ RUN apt-get update -qqy \
   && tar -C /opt -xjf /tmp/firefox.tar.bz2 \
   && rm /tmp/firefox.tar.bz2 \
   && mv /opt/firefox /opt/firefox-$FIREFOX_VERSION \
-  && ln -fs /opt/firefox-$FIREFOX_VERSION/firefox /usr/bin/firefox
+  && ln -fs /opt/firefox-$FIREFOX_VERSION/firefox /usr/bin/firefox \
+  && apt-get clean
 
 RUN dbus-uuidgen > /var/lib/dbus/machine-id
 
@@ -166,7 +177,7 @@ RUN dbus-uuidgen > /var/lib/dbus/machine-id
 # Firefox GECKO DRIVER
 #======================
 
-ARG GECKO_DRIVER_VERSION=v0.25.0
+ARG GECKO_DRIVER_VERSION=v0.26.0
 RUN wget -O - "https://github.com/mozilla/geckodriver/releases/download/$GECKO_DRIVER_VERSION/geckodriver-$GECKO_DRIVER_VERSION-linux64.tar.gz" \
       | tar -xz -C /usr/bin
 
@@ -179,11 +190,11 @@ RUN wget -O - "http://cli.run.pivotal.io/stable?release=linux64-binary&source=gi
 #====================================
 # AWS CLI
 #====================================
-RUN pip install awscli
+RUN pip3 install awscli
 
 # compatibility with CloudBees AWS CLI Plugin which expects pip to be installed as user
 RUN mkdir -p /home/jenkins/.local/bin/ \
-  && ln -s /usr/bin/pip /home/jenkins/.local/bin/pip \
+  && ln -s /usr/local/bin/pip /home/jenkins/.local/bin/pip \
   && chown -R jenkins:jenkins /home/jenkins/.local
 
 #====================================
@@ -192,25 +203,14 @@ RUN mkdir -p /home/jenkins/.local/bin/ \
 # See https://nodejs.org/en/download/package-manager/#debian-and-ubuntu-based-linux-distributions
 #====================================
 RUN curl -sL https://deb.nodesource.com/setup_10.x | bash \
-    && apt-get install -y nodejs
+    && apt-get install -y nodejs \
+    && apt-get clean
 
 #====================================
-# AZURE CLI
-# https://docs.microsoft.com/en-us/cli/azure/install-azure-cli-apt?view=azure-cli-latest
+# YARN, GRUNT, GULP
 #====================================
 
-RUN echo "deb [arch=amd64] https://packages.microsoft.com/repos/azure-cli/ xenial main" | tee /etc/apt/sources.list.d/azure-cli.list
-RUN curl -L https://packages.microsoft.com/keys/microsoft.asc | apt-key add -
-RUN apt-key adv --keyserver packages.microsoft.com --recv-keys 52E16F86FEE04B979B07E28DB02C46DF417A0893
-RUN apt-get -qqy --no-install-recommends install apt-transport-https \
-  && apt-get update -qqy \
-  && apt-get install -qqy --no-install-recommends azure-cli
-
-#====================================
-# BOWER, GRUNT, GULP
-#====================================
-
-RUN npm install --global grunt-cli@1.3.1 bower@1.8.4 gulp@4.0.0
+RUN npm install --global grunt-cli yarn gulp
 
 #====================================
 # Kubernetes CLI
@@ -227,13 +227,13 @@ RUN mkdir /var/tmp/openshift \
       && wget -O - "https://github.com/openshift/origin/releases/download/v3.11.0/openshift-origin-client-tools-v3.11.0-0cbc58b-linux-64bit.tar.gz" \
       | tar -C /var/tmp/openshift --strip-components=1 -zxf - \
       && mv /var/tmp/openshift/oc /usr/local/bin \
-      && rm -rf /var/tmp/openshift
+     && rm -rf /var/tmp/openshift
 
 #====================================
 # JMETER
 #====================================
 RUN mkdir /opt/jmeter \
-      && wget -O - "https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-5.1.1.tgz" \
+      && wget -O - "https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-5.3.tgz" \
       | tar -xz --strip=1 -C /opt/jmeter
 
 #====================================
@@ -242,7 +242,8 @@ RUN mkdir /opt/jmeter \
 RUN apt-get update -qqy \
   && apt-get -qqy --no-install-recommends install \
     mysql-client \
-  && rm -rf /var/lib/apt/lists/*
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 USER jenkins
 
