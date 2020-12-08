@@ -90,9 +90,9 @@ ENV MAVEN_HOME /usr/share/maven
 # Ant
 #==========
 
-ENV ANT_VERSION 1.10.8
+ENV ANT_VERSION 1.10.9
 
-RUN curl -fsSL https://www.apache.org/dist/ant/binaries/apache-ant-$ANT_VERSION-bin.tar.gz | tar xzf - -C /usr/share \
+RUN curl -fsSL https://www.apache.org/dist/ant/binaries/apache-ant-1.10.9-bin.tar.gz | tar xzf - -C /usr/share \
   && mv /usr/share/apache-ant-$ANT_VERSION /usr/share/ant \
   && ln -s /usr/share/ant/bin/ant /usr/bin/ant
 
